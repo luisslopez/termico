@@ -1,0 +1,307 @@
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+np.seterr(divide='ignore', invalid='ignore')
+%matplotlib inline
+
+#Propiedades físicas
+
+#White coating
+blanco_alfa = 0.2
+blanco_epsi = 0.88
+
+#Solar Panel
+alfa = 0.9
+epsi = 0.83
+
+A = 0.3 * 0.3 #Area Al node
+
+gen = 0.2 #Area efectiva generacion - Eficiencia
+
+K = 130 #aluminio #W/mK 
+
+Ac = 2e-3 * 0.3 #ärea Contacto
+l = 0.3
+
+m = 2810 * 0.3 * 0.3 * 1e-3
+cp = 960 #J/kg*K
+
+m_central = 10
+cp_central = 1000
+
+sigma=5.67e-8 #W/(m^2*K^4) Boltzmann
+
+print(m*cp)
+
+#Constantes simulación
+periodo = 5982 #segundos
+vueltas = 1
+lim = vueltas * periodo
+paso = 2 #segundos
+
+#INFRARROJO
+F_ir = np.array([1, 0.25, 0.25, 0.25, 0.25, 0, 0])
+q_ir = 160
+Qir = np.zeros((7,360))
+carga_ir = np.zeros((7,int(lim/paso)))
+
+#SOLAR
+q_s = 2612.94
+F_s = np.zeros((7,360))
+carga_solar = np.zeros((7,int(lim/paso)))
+
+#ALBEDO
+F_a = F_ir
+al=0.76
+carga_albedo = np.zeros((7,int(lim/paso)))
+
+#Calculo carga IR
+for i in range(6):
+    if i==1 or i==2:
+        Qir[i]=blanco_epsi*F_ir[i]*A*q_ir
+    else:
+        Qir[i]=epsi*F_ir[i]*A*q_ir
+        
+#Calculo factores de vista con el sol
+def F_sol (i,nu):
+    S=np.array([0,1])
+    Fs=np.zeros((7))
+    Fs[0]=np.dot(S,((np.array([np.sin(nu),-np.cos(nu)]))/(np.linalg.norm(S)*np.linalg.norm(np.array([np.sin(nu),-np.cos(nu)])))))
+    Fs[1]=np.dot(S,np.array([0,0]))/(np.linalg.norm(S)*np.linalg.norm(np.array([0,0])))
+    Fs[2]=np.dot(S,np.array([0,0]))/(np.linalg.norm(S)*np.linalg.norm(np.array([0,0])))
+    Fs[3]=np.dot(S,np.array([np.sin(nu-np.pi/2),np.cos(nu-np.pi/2)]))/(np.linalg.norm(S)*np.linalg.norm(np.array([np.sin(nu-np.pi/2),np.cos(nu-np.pi/2)])))
+    Fs[4]=np.dot(S,np.array([np.sin(nu+np.pi/2),np.cos(nu+np.pi/2)]))/(np.linalg.norm(S)*np.linalg.norm(np.array([np.sin(nu+np.pi/2),np.cos(nu+np.pi/2)])))
+    Fs[5]=np.dot(S,np.array([np.sin(nu),np.cos(nu)]))/(np.linalg.norm(S)*np.linalg.norm(np.array([np.sin(nu),np.cos(nu)])))
+    return Fs[i]
+
+
+#Calculo carga solar
+def Q_solar(i,nu):
+    while (nu >= 2*np.pi):
+        nu=nu-2*np.pi
+    if F_sol(i,nu) > 0 and (nu <= eclipse1 or nu >= eclipse2) :
+        Qs=alfa*F_sol(i,nu)*A*q_s
+    else:
+        Qs=0
+    return Qs
+
+#Calculo carga albedo
+eclipse1=114.522431*np.pi/180
+eclipse2=245.477569*np.pi/180
+Qc=np.zeros((7,7))
+def Q_alb (i,nu):
+    while (nu >= 2*np.pi):
+        nu = nu - 2 * np.pi
+    if nu <= np.pi/2 or nu >= 3*np.pi/2 :
+        if i==1 or i==2:
+            Q = blanco_alfa * F_a[i] * A * q_s * al * np.cos(nu)
+        else:
+            Q = alfa*F_a[i]*A*q_s*al*np.cos(nu)
+    else:
+        Q=0
+    return Q
+
+#Calculo acople conductivo
+def acople_cond(Tj,Ti,j,i):
+    if i==j or (i==6 and (j==0 or j==5)) or (j==6 and (i==0 or i==5)):
+        Qc=0
+    else:
+        if (i==6 or j==6):
+            Qc=K*Ac*(Tj-Ti)*2/l
+        else:
+            Qc=K*Ac*(Tj-Ti)/l
+    return Qc
+
+#Calculo de generación de potencia de nodo interno
+gen_total=0
+nu=0
+t=0
+while t < lim:
+    nu += 2 * np.pi * paso * vueltas / lim
+    
+    gen_total += gen * (Q_solar(0,nu) + Q_solar(3,nu) + Q_solar(4,nu) + Q_solar(5,nu))
+    
+    gen_total += gen * (Q_alb(0,nu) + Q_alb(3,nu) + Q_alb(4,nu) + Q_alb(5,nu))
+    
+    t += 1
+    
+#print("Generacion : ",gen_total*paso/lim,"W por paso")
+print("Generacion : ", gen_total / lim,"W por segundo")
+
+#Temperaturas iniciales
+T = np.array([383.85063017, 329.58053824, 329.58149267, 339.05478943, 344.62759672, 394.85258174, 335.86776191])
+
+T
+
+#Calculo de temperaturas
+Tg = np.zeros((7,int(lim/paso)))
+
+cargas = np.zeros((7,int(lim/paso)))
+
+nu, t = 0, 0
+
+while t < int(lim/paso):
+    #Cambio de temperatura debido a cargas externas
+    for i in range(7):
+        if i == 6:
+            T[i] +=  (gen_total / lim) * paso / (m_central * cp_central)
+        else:
+            if i==1 or i==2:
+                T[i] += (paso / (m * cp)) * (blanco_epsi * F_ir[i] * A * q_ir + Q_solar(i,nu) + Q_alb(i,nu) - sigma * blanco_epsi * A * T[i]**4)
+            else:
+                T[i] += (paso / (m * cp)) * (epsi * F_ir[i] * A * q_ir + Q_solar(i,nu) * (1-gen) + Q_alb(i,nu) * (1-gen) - sigma * epsi * A * T[i]**4)
+        
+        #Cambio de temperatura debido a acoples térmicos
+        for j in range(7):
+            if i==6:
+                T[i] += (paso/(m_central*cp_central)) * acople_cond(T[j],T[i],j,i)
+            else:
+                T[i] += (paso/(m*cp)) * acople_cond(T[j],T[i],j,i)
+                
+        Tg[i,t]=T[i]
+        
+        #Creacion de vectores para graficar las cargas externas
+        if i!=6:
+            carga_solar[i,t] = Q_solar(i,nu)
+            carga_albedo[i,t] = Q_alb(i,nu)
+            if i==1 or i==2:
+                carga_ir[i,t] = blanco_epsi * F_ir[i] * A * q_ir
+            else:
+                carga_ir[i,t] = epsi * F_ir[i] * A * q_ir
+            cargas[i,t] = carga_solar[i,t] + carga_albedo[i,t] + carga_ir[i,t]
+            
+    nu += 2 * np.pi * paso * vueltas / lim
+    t += 1
+    
+print("Temperaturas finales")
+print(T)
+
+description=np.array([' +Z',' +Y',' -Y',' -X',' +X',' -Z',' Internal'])
+number=np.array([3,5,6,2,1,4,7])
+order=np.array([4,3,0,5,1,2,6])
+fig,ax= plt.subplots()
+t= np.arange(0,lim,paso)
+
+for i in range(7):
+    if i!=5:
+        if i==4:
+            ax.plot(t,(Tg[order[i]]-273.15), label='Nodes 5 +Y, 6 -Y')
+        else:
+            ax.plot(t,(Tg[order[i]]-273.15), label='Node '+str(number[order[i]])+description[order[i]])
+            
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='best', borderaxespad=0.)
+    plt.subplots_adjust(left=.1, right=1.6)
+    ax.set(xlabel='Time [s]', ylabel='Temperature [°C]',title='Evolution of temperature over time')
+ax.grid()
+plt.show()
+
+Tg
+
+#Temperaturas individuales
+print("Temperatures during orbit")
+print("Evolution of temperature over time")
+fig,ax= plt.subplots()
+t= np.arange(0,lim,paso)
+
+for i in range(7):
+    if i!=5:
+        if i==4:
+            plt.subplot(2,3,5)
+            plt.plot(t, (Tg[order[i]]-273.15))
+            plt.ylabel('Temperature [°C]')
+            plt.xlabel('Time [s]')
+            plt.title('Nodes 5 +Y, 6 -Y')
+        else:
+            if i<4:
+                plt.subplot(2,3,i+1)
+            else:
+                plt.subplot(2,3,i)
+            plt.plot(t, (Tg[order[i]]-273.15))
+            plt.ylabel('Temperature [°C]')
+            plt.xlabel('Time [s]')
+            plt.title('Node '+str(number[order[i]])+description[order[i]])
+        plt.grid(True)
+
+plt.subplots_adjust(top=1.8, bottom=0.1, left=.1, right=2.3,hspace=0.3, wspace=0.27)
+plt.show()
+
+#Calculo de Temperaturas maximas y minimas
+frio=T
+caliente=T
+b=0
+x=0
+for t in range(int(lim/paso)):
+    for i in range(7):
+        if Tg[i,t]>=caliente[i]:
+            caliente[i]=Tg[i,t]
+            b=t
+        if Tg[i,t]<=frio[i]:
+            frio[i]=Tg[i,t]
+            x=t
+
+for i in range(7):
+    print('Temp max nodo '+str(number[order[i]])+': '+str(np.max(Tg[order[i],:])-273.15)+'°C')
+    print('Temp min nodo '+str(number[order[i]])+': '+str(np.min(Tg[order[i],:])-273.15)+'°C')
+
+    
+    #CARGA INFRARROJO
+print("Carga IR")
+print("Evolution of IR thermal load absorbed during orbit")
+fig,ax= plt.subplots()
+t= np.arange(0,lim,paso)
+for i in range(6):
+    plt.subplot(2,3,i+1)
+    plt.plot(t, carga_ir[order[i]])
+    plt.ylabel('Carga [W]')
+    plt.xlabel('Time [s]')
+    plt.title('Node '+str(number[order[i]])+description[order[i]])
+    plt.grid(True)
+    plt.subplots_adjust(top=1.5, bottom=0.1, left=.1, right=1.9,hspace=0.4, wspace=0.35)
+plt.show()
+
+#CARGA SOLAR
+print("Carga solar")
+print("Evolution of solar thermal load absorbed during orbit")
+fig,ax= plt.subplots()
+t= np.arange(0,lim,paso)
+for i in range(6):
+    plt.subplot(2,3,i+1)
+    plt.plot(t, carga_solar[order[i]])
+    plt.ylabel('Carga [W]')
+    plt.xlabel('Time [s]')
+    plt.title('Node '+str(number[order[i]])+description[order[i]])
+    plt.grid(True)
+    plt.subplots_adjust(top=1.5, bottom=0.1, left=.1, right=1.9,hspace=0.4, wspace=0.35)
+plt.show()
+
+#CARGA ALBEDO
+print("Carga albedo")
+print("Evolution of albedo thermal load absorbed during orbit")
+fig,ax= plt.subplots()
+t= np.arange(0,lim,paso)
+t= np.arange(0,lim,paso)
+for i in range(6):
+    plt.subplot(2,3,i+1)
+    plt.plot(t, carga_albedo[order[i]])
+    plt.ylabel('Carga [W]')
+    plt.xlabel('Time [s]')
+    plt.title('Node '+str(number[order[i]])+description[order[i]])
+    plt.grid(True)
+    plt.subplots_adjust(top=1.5, bottom=0.1, left=.1, right=1.9,hspace=0.4, wspace=0.35)
+plt.show()
+
+#CARGAS TOTALES
+print("Carga total")
+print("Evolution of total thermal load absorbed during orbit")
+fig,ax= plt.subplots()
+t= np.arange(0,lim,paso)
+t= np.arange(0,lim,paso)
+for i in range(6):
+    plt.subplot(2,3,i+1)
+    plt.plot(t, cargas[order[i]])
+    plt.ylabel('Carga [W]')
+    plt.xlabel('Time [s]')
+    plt.title('Node '+str(number[order[i]])+description[order[i]])
+    plt.grid(True)
+    plt.subplots_adjust(top=1.5, bottom=0.1, left=.1, right=1.9,hspace=0.4, wspace=0.35)
+plt.show()
