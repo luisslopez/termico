@@ -5,7 +5,6 @@ np.seterr(divide='ignore', invalid='ignore')
 %matplotlib inline
 
 #Propiedades físicas
-#Holis, soy del branch 2
 
 #White coating
 blanco_alfa = 0.2
