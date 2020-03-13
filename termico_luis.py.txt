@@ -52,7 +52,7 @@ carga_solar = np.zeros((7,int(lim/paso)))
 
 #ALBEDO
 F_a = F_ir
-al=0.7658
+al=0.7
 carga_albedo = np.zeros((7,int(lim/paso)))
 
 #Calculo carga IR
